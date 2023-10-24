@@ -78,19 +78,26 @@ class JWTCookieAuthentication(BaseAuthentication):
 @authentication_classes([JWTCookieAuthentication])
 @permission_classes([IsAuthenticated])
 class ChatViewSet(viewsets.ModelViewSet):
-    queryset = Chat.objects.all()
     serializer_class = ChatSerializer
+    queryset = Chat.objects.all()
+
+    def get_queryset(self):
+        # Retorna solo los chats en los cuales el usuario autenticado está presente
+        return Chat.objects.filter(participants=self.request.user)
 
     def create(self, request, *args, **kwargs):
-        data = request.data.copy()  # Make a copy of the request data
+        data = request.data.copy()  # Hacemos una copia de los datos de la solicitud
         participants = data.get('participants', [])
 
-        # Add the current user to participants if not already present
+        # Nos aseguramos que todos los participantes sean enteros
+        participants = [int(participant) for participant in participants]
+
+        # Añadimos al usuario actual a los participantes si no está presente
         if request.user.id not in participants:
             participants.append(request.user.id)
         data['participants'] = participants
 
-        # Use a transaction to ensure atomicity
+        # Usamos una transacción para asegurar la atomicidad
         with transaction.atomic():
             chat = Chat.objects.create()
             chat.participants.set(participants)
@@ -98,6 +105,7 @@ class ChatViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(chat)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
 
 class MessageViewSet(viewsets.ModelViewSet):
     # Assuming you want the same authentication and permissions for messages:
@@ -105,3 +113,16 @@ class MessageViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     queryset = Message.objects.all()
     serializer_class = MessageSerializer
+
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()  # Make a copy of the request data
+
+    # Puedes añadir lógica adicional aquí, como establecer el remitente del mensaje
+    # como el usuario actual:
+        data['sender'] = request.user.id
+
+        serializer = self.get_serializer(data=data)
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
